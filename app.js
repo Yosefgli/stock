@@ -390,15 +390,19 @@ function bindLogin() {
     const userId = $('#loginUserId').value.trim();
     const code   = $('#loginCode').value.trim();
     $('#loginErr').textContent = 'מתחבר...';
+    console.log('trying login:', userId, code);
     try {
       const data = await apiPost({ action: 'auth_login', userId, code });
       store.session = { userId: data.userId, userName: data.userName, role: data.role, token: data.token };
       saveSession();
       await ensureMovementsLoaded();
       navigate('');
-    } catch (err) {
+    }
+    console.log('response:', data);
+    catch (err) {
       $('#loginErr').textContent = 'שגיאה: ' + err.message;
     }
+  console.log('error:', err);
   };
   $('#loginBtn').onclick = doLogin;
   $('#loginCode').addEventListener('keydown', e => e.key === 'Enter' && doLogin());
