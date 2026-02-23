@@ -511,15 +511,18 @@ function filterAndSortProducts({ q, brand, vendor, pesach, sort, dateFrom, dateT
 function computeOutBySku(dateFrom, dateTo) {
   const map = new Map();
   if (!store.movements.length || !dateFrom || !dateTo) return map;
+  // חשוב: new Date('2024-01-01') מפרש כ-UTC, לכן מוסיפים T00:00:00 בלי Z
   const from = new Date(dateFrom + 'T00:00:00').getTime();
   const to   = new Date(dateTo   + 'T23:59:59').getTime();
+  if (isNaN(from) || isNaN(to)) return map;
   for (const m of store.movements) {
     if (String(m['מקור']||'').trim() !== 'יציאה') continue;
     const ts  = parseMovementTs(m);
     if (!ts || ts < from || ts > to) continue;
     const sku = String(m['מק"ט']||'').trim();
     if (!sku) continue;
-    map.set(sku, (map.get(sku)||0) + (Number(m['כמות']||0)||0));
+    const qty = Number(m['כמות']||0) || 0;
+    if (qty > 0) map.set(sku, (map.get(sku)||0) + qty);
   }
   return map;
 }
@@ -627,7 +630,7 @@ function bindAddOut(mode) {
 
       try {
         const notesVal = $('#notes').value.trim();
-        await apiPost({
+        const moveResult = await apiPost({
           action: 'movement_add',
           token:  store.session.token,
           sku, barcode, qty, source,
@@ -655,7 +658,7 @@ function bindAddOut(mode) {
           persistCatalog();
         }
 
-        const entry = { ts: Date.now(), sku, name, barcode, qty, source, notes: notesVal };
+        const entry = { ts: Date.now(), sku, name, barcode, qty, source, notes: notesVal, rowNum: moveResult?.row || null };
         (mode === 'add' ? store.drafts.add : store.drafts.out).unshift(entry);
         saveDrafts();
 
@@ -686,12 +689,15 @@ function bindAddOut(mode) {
       <div style="overflow:auto">
         <table class="table">
           <thead><tr><th>זמן</th><th>מק"ט</th><th>שם</th><th>ברקוד</th><th>כמות</th><th>מקור</th><th></th></tr></thead>
-          <tbody>${list.map((x, i) => `<tr>
+          <tbody>${list.map((x, i) => `<tr data-idx="${i}">
             <td>${new Date(x.ts).toLocaleString('he-IL')}</td>
             <td>${escHtml(x.sku)}</td>
             <td>${escHtml(x.name)}</td>
             <td>${escHtml(x.barcode)}</td>
-            <td><input class="input draft-qty" data-idx="${i}" type="number" value="${x.qty}" min="1" style="width:70px;padding:4px 8px"/></td>
+            <td>
+              <input class="input draft-qty" data-idx="${i}" type="number" value="${x.qty}" min="1" style="width:70px;padding:4px 8px"/>
+              <button class="btn btn-primary draft-update" data-idx="${i}" style="padding:5px 10px;display:none">עדכן</button>
+            </td>
             <td>${escHtml(x.source)}</td>
             <td><button class="btn btn-danger draft-del" data-idx="${i}" style="padding:6px 10px">🗑</button></td>
           </tr>`).join('')}</tbody>
@@ -701,22 +707,73 @@ function bindAddOut(mode) {
         <button id="finishBtn" class="btn btn-primary">סיימתי — נקה טיוטה</button>
       </div>`;
 
+    // הצג כפתור עדכון כשמשנים כמות
     pane.querySelectorAll('.draft-qty').forEach(inp => {
-      inp.addEventListener('change', () => {
-        const idx = Number(inp.dataset.idx);
-        const val = Math.max(1, Number(inp.value) || 1);
-        inp.value  = val;
-        list[idx].qty = val;
-        saveDrafts();
+      inp.addEventListener('input', () => {
+        const updateBtn = pane.querySelector(`.draft-update[data-idx="${inp.dataset.idx}"]`);
+        if (updateBtn) updateBtn.style.display = '';
       });
     });
 
+    // עדכון כמות בשיטס
+    pane.querySelectorAll('.draft-update').forEach(btn => {
+      btn.onclick = async () => {
+        const idx  = Number(btn.dataset.idx);
+        const inp  = pane.querySelector(`.draft-qty[data-idx="${idx}"]`);
+        const val  = Math.max(1, Number(inp.value) || 1);
+        const item = list[idx];
+        if (!item.rowNum) {
+          btn.textContent = '⚠ אין מספר שורה';
+          return;
+        }
+        btn.textContent = 'שומר...';
+        btn.disabled = true;
+        try {
+          await apiPost({
+            action: 'movement_update_qty',
+            token:  store.session.token,
+            rowNum: item.rowNum,
+            qty:    val,
+          });
+          item.qty = val;
+          saveDrafts();
+          btn.style.display = 'none';
+          btn.textContent   = 'עדכן';
+          btn.disabled      = false;
+          inp.style.background = '#dcfce7';
+          setTimeout(() => { inp.style.background = ''; }, 2000);
+        } catch (err) {
+          btn.textContent  = 'שגיאה';
+          btn.disabled     = false;
+        }
+      };
+    });
+
+    // מחיקת שורה מהשיטס
     pane.querySelectorAll('.draft-del').forEach(btn => {
-      btn.onclick = () => {
-        list.splice(Number(btn.dataset.idx), 1);
-        saveDrafts();
-        $('#summaryBtn').textContent = `סיכום (${list.length})`;
-        renderSummary();
+      btn.onclick = async () => {
+        const idx  = Number(btn.dataset.idx);
+        const item = list[idx];
+        if (!confirm('למחוק שורה זו מהשיטס?')) return;
+        btn.textContent = '...';
+        btn.disabled = true;
+        try {
+          if (item.rowNum) {
+            await apiPost({
+              action: 'movement_delete',
+              token:  store.session.token,
+              rowNum: item.rowNum,
+            });
+          }
+          list.splice(idx, 1);
+          saveDrafts();
+          $('#summaryBtn').textContent = `סיכום (${list.length})`;
+          renderSummary();
+        } catch (err) {
+          btn.textContent = '🗑';
+          btn.disabled    = false;
+          alert('שגיאה: ' + err.message);
+        }
       };
     });
 
