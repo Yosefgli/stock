@@ -442,13 +442,11 @@ function bindDashboard() {
   fillSelect($('#vendor'), uniq(store.catalog.products.map(p => String(p['ספק']  || '').trim()).filter(Boolean)).sort((a,b) => a.localeCompare(b,'he')));
 
   const apply = () => renderProductsTable(filterAndSortProducts({
-    q:        $('#q').value.trim(),
-    brand:    $('#brand').value,
-    vendor:   $('#vendor').value,
-    pesach:   $('#pesach').value,
-    sort:     $('#sort').value,
-    dateFrom: dateRangeActive ? $('#dateFrom').value : '',
-    dateTo:   dateRangeActive ? $('#dateTo').value   : '',
+    q:      $('#q').value.trim(),
+    brand:  $('#brand').value,
+    vendor: $('#vendor').value,
+    pesach: $('#pesach').value,
+    sort:   $('#sort').value,
   }));
 
   $('#dateRangeSearchBtn').onclick = async () => {
@@ -493,7 +491,7 @@ function bindDashboard() {
   apply();
 }
 
-function filterAndSortProducts({ q, brand, vendor, pesach, sort, dateFrom, dateTo }) {
+function filterAndSortProducts({ q, brand, vendor, pesach, sort }) {
   if (!store.catalog?.products) return [];
   let rows = store.catalog.products.filter(p => String(p['מק"ט'] || '').trim());
 
@@ -507,16 +505,10 @@ function filterAndSortProducts({ q, brand, vendor, pesach, sort, dateFrom, dateT
   if (vendor) rows = rows.filter(p => String(p['ספק']  || '').trim() === vendor);
   if (pesach) rows = rows.filter(p => String(p['פסח']  || '').trim() === pesach);
 
-  // אם יש תוצאה שחזרה מהשרת עבור אותו טווח — השתמש בה, אחרת חשב מקומית
-  let outBySku;
-  if (dateRangeActive && store._outBySku && store._outDateRange &&
-      store._outDateRange.dateFrom === dateFrom && store._outDateRange.dateTo === dateTo) {
-    outBySku = { get: (sku) => store._outBySku[sku] || 0 };
-  } else {
-    outBySku = computeOutBySku(dateFrom, dateTo);
-  }
+  // __outQty מוגדר רק כשלחצו "חפש בטווח" — בשאר המקרים 0
   const stockNum = p => Number(String(p['סה"כ במלאי'] || '0').replace(',','.')) || 0;
-  rows.forEach(p => { p.__outQty = outBySku.get(String(p['מק"ט']||'').trim()) || 0; });
+  const serverOut = (dateRangeActive && store._outBySku) ? store._outBySku : {};
+  rows.forEach(p => { p.__outQty = serverOut[String(p['מק"ט']||'').trim()] || 0; });
 
   rows.sort((a, b) => {
     switch (sort) {
