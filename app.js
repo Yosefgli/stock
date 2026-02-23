@@ -394,9 +394,10 @@ function productEditView(sku) {
 function bindLogin() {
   $('#logoutBtn').style.display = 'none';
   const doLogin = async () => {
-    const userId = $('#loginUserId').value.trim();
-    const code   = $('#loginCode').value.trim();
-    $('#loginErr').textContent = 'מתחבר...';
+    const userId  = $('#loginUserId').value.trim();
+    const code    = $('#loginCode').value.trim();
+    const errEl   = $('#loginErr'); // שמור reference לפני async כי ה-DOM עלול להתחלף
+    errEl.textContent = 'מתחבר...';
     try {
       const data = await apiPost({ action: 'auth_login', userId, code });
       store.session = { userId: data.userId, userName: data.userName, role: data.role, token: data.token };
@@ -404,7 +405,7 @@ function bindLogin() {
       await ensureMovementsLoaded();
       navigate('');
     } catch (err) {
-      $('#loginErr').textContent = 'שגיאה: ' + err.message;
+      if (errEl && errEl.isConnected) errEl.textContent = 'שגיאה: ' + err.message;
     }
   };
   $('#loginBtn').onclick = doLogin;
@@ -419,6 +420,12 @@ function bindLogin() {
 function bindDashboard() {
   $('#logoutBtn').style.display = '';
   let dateRangeActive = false;
+  // בדיקת קטלוג
+  if (!store.catalog || !store.catalog.products || store.catalog.products.length === 0) {
+    console.error('קטלוג ריק בעת טעינת דשבורד!', store.catalog);
+  } else {
+    console.log('קטלוג נטען:', store.catalog.products.length, 'מוצרים');
+  }
 
   $('#refreshCatalogBtn').onclick = async () => {
     const btn = $('#refreshCatalogBtn');
@@ -506,9 +513,10 @@ function filterAndSortProducts({ q, brand, vendor, pesach, sort }) {
   if (pesach) rows = rows.filter(p => String(p['פסח']  || '').trim() === pesach);
 
   // __outQty מוגדר רק כשלחצו "חפש בטווח" — בשאר המקרים 0
-  const stockNum = p => Number(String(p['סה"כ במלאי'] || '0').replace(',','.')) || 0;
+  const stockNum  = p => Number(String(p['סה"כ במלאי'] || '0').replace(',','.')) || 0;
   const serverOut = (dateRangeActive && store._outBySku) ? store._outBySku : {};
   rows.forEach(p => { p.__outQty = serverOut[String(p['מק"ט']||'').trim()] || 0; });
+  // serverOut is a plain object - access with [] not .get()
 
   rows.sort((a, b) => {
     switch (sort) {
