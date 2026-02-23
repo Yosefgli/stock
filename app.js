@@ -134,8 +134,11 @@ async function refreshCatalog() {
     fetchText(window.CONFIG.BARCODES_CSV),
   ]);
 
-  const products = parseCsv(productsCsv);
-  const barcodes = parseCsv(barcodesCsv);
+  // FIX: strip BOM that Google Sheets sometimes adds to CSV exports
+  const stripBom = (s) => s.charCodeAt(0) === 0xFEFF ? s.slice(1) : s;
+
+  const products = parseCsv(stripBom(productsCsv));
+  const barcodes = parseCsv(stripBom(barcodesCsv));
   const productsBySku = new Map();
   const skuByBarcode = new Map();
   const barcodesBySku = new Map();
@@ -291,7 +294,8 @@ function dashboardView() {
 
 function addOutView({ mode }) {
   const draftCount = mode === 'add' ? store.drafts.add.length : store.drafts.out.length;
-  return `<section class="card"><div class="h1">${mode === 'add' ? 'הוספה למלאי' : 'הוצאה מהמלאי'}</div><div class="row"><div class="col"><label>ברקוד</label><input id="barcodeInput" class="input" autocomplete="off"/></div><div style="display:flex;gap:10px;align-items:flex-end"><button id="findBtn" class="btn">חיפוש</button><button id="summaryBtn" class="btn btn-ghost">סיכום (${draftCount})</button><a class="btn btn-ghost" data-link href="/stock">לתפריט</a></div></div><div id="productPane" class="card" style="display:none"></div></section><section id="summaryPane" class="card" style="display:none"></section>`;
+  // FIX: added a separate #feedbackMsg div outside productPane so it survives productPane clearing
+  return `<section class="card"><div class="h1">${mode === 'add' ? 'הוספה למלאי' : 'הוצאה מהמלאי'}</div><div class="row"><div class="col"><label>ברקוד</label><input id="barcodeInput" class="input" autocomplete="off"/></div><div style="display:flex;gap:10px;align-items:flex-end"><button id="findBtn" class="btn">חיפוש</button><button id="summaryBtn" class="btn btn-ghost">סיכום (${draftCount})</button><a class="btn btn-ghost" data-link href="/stock">לתפריט</a></div></div><div id="feedbackMsg" class="small" style="margin-top:6px;min-height:18px"></div><div id="productPane" class="card" style="display:none"></div></section><section id="summaryPane" class="card" style="display:none"></section>`;
 }
 
 function statusView() { return `<section class="card"><div class="h1">מצב מוצר</div><div class="row"><div class="col"><label>ברקוד</label><input id="statusBarcode" class="input"/></div><div style="display:flex;gap:10px;align-items:flex-end"><button id="statusFind" class="btn">חיפוש</button><a class="btn btn-ghost" data-link href="/stock">לתפריט</a></div></div><div id="statusOut" class="card" style="display:none"></div></section>`; }
@@ -336,8 +340,9 @@ function bindDashboard() {
     }
   };
 
-  fillSelect($('#brand'), uniq(store.catalog.products.map(p => String(p['מותג'] || '').trim()).filter(Boolean)));
-  fillSelect($('#vendor'), uniq(store.catalog.products.map(p => String(p['ספק'] || '').trim()).filter(Boolean)));
+  // FIX: sort dropdown values before populating for better UX
+  fillSelect($('#brand'), uniq(store.catalog.products.map(p => String(p['מותג'] || '').trim()).filter(Boolean)).sort((a, b) => a.localeCompare(b, 'he')));
+  fillSelect($('#vendor'), uniq(store.catalog.products.map(p => String(p['ספק'] || '').trim()).filter(Boolean)).sort((a, b) => a.localeCompare(b, 'he')));
 
   const apply = () => {
     const rows = filterAndSortProducts({
@@ -355,6 +360,13 @@ function bindDashboard() {
     apply();
   };
 
+  // FIX: reset dateRangeActive if date fields are cleared
+  ['dateFrom', 'dateTo'].forEach((id) => {
+    $('#' + id).addEventListener('change', () => {
+      if (!$('#dateFrom').value && !$('#dateTo').value) dateRangeActive = false;
+    });
+  });
+
   ['q', 'brand', 'vendor', 'pesach', 'sort'].forEach((id) => {
     const el = $('#' + id);
     el.addEventListener('input', apply);
@@ -364,6 +376,9 @@ function bindDashboard() {
 }
 
 function filterAndSortProducts({ q, brand, vendor, pesach, sort, dateFrom, dateTo }) {
+  // FIX: guard against empty/null catalog
+  if (!store.catalog || !store.catalog.products) return [];
+
   let rows = store.catalog.products.filter((p) => {
     const sku = String(p['מק"ט'] || p['מק"ט מוצר'] || '').trim();
     return Boolean(sku);
@@ -402,8 +417,10 @@ function computeOutBySku(dateFrom, dateTo) {
   for (const m of store.movements) {
     if (String(m['מקור'] || '').trim() !== 'יציאה') continue;
     const ts = parseMovementTs(m);
+    // FIX: skip rows where timestamp couldn't be parsed (ts === 0)
     if (!ts || ts < from || ts > to) continue;
     const sku = String(m['מק"ט'] || '').trim();
+    if (!sku) continue;
     const qty = Number(m['כמות'] || 0) || 0;
     map.set(sku, (map.get(sku) || 0) + qty);
   }
@@ -432,6 +449,8 @@ function bindAddOut({ mode }) {
   $('#logoutBtn').style.display = '';
   const input = $('#barcodeInput');
   const productPane = $('#productPane');
+  // FIX: feedbackMsg is now outside productPane so it persists after clearing the pane
+  const feedbackMsg = $('#feedbackMsg');
   $('#findBtn').onclick = doFind;
   $('#summaryBtn').onclick = toggleSummary;
   input.addEventListener('keydown', (e) => e.key === 'Enter' && (e.preventDefault(), doFind()));
@@ -458,7 +477,8 @@ function bindAddOut({ mode }) {
     const name = String(p['שם מוצר'] || '').trim();
     const stock = Number(String(p['סה"כ במלאי'] || '0').replace(',', '.')) || 0;
     productPane.style.display = '';
-    productPane.innerHTML = `<div class="h1">${escapeHtml(name)}</div><div class="small">מק"ט: <span class="kbd">${escapeHtml(sku)}</span> · מלאי: ${stock}</div><div class="row" style="margin-top:10px"><div class="col"><label>כמות</label><input id="qty" class="input" type="number" value="1" min="1"/></div><div class="col"><label>הערות</label><input id="notes" class="input"/></div></div><div class="row" style="margin-top:10px"><button id="m10" class="btn">-10</button><button id="m5" class="btn">-5</button><button id="m1" class="btn">-1</button><button id="p1" class="btn">+1</button><button id="p5" class="btn">+5</button><button id="p10" class="btn">+10</button><div class="spacer"></div><a data-link class="btn btn-ghost" href="/stock/product/edit?sku=${encodeURIComponent(sku)}">עריכת מוצר</a><button id="submitMove" class="btn btn-primary">${mode === 'add' ? 'הוסף למלאי' : 'הוצא מהמלאי'}</button></div><div id="msg" class="small" style="margin-top:8px"></div>`;
+    // FIX: #msg removed from here — feedback lives in #feedbackMsg above the pane
+    productPane.innerHTML = `<div class="h1">${escapeHtml(name)}</div><div class="small">מק"ט: <span class="kbd">${escapeHtml(sku)}</span> · מלאי: ${stock}</div><div class="row" style="margin-top:10px"><div class="col"><label>כמות</label><input id="qty" class="input" type="number" value="1" min="1"/></div><div class="col"><label>הערות</label><input id="notes" class="input"/></div></div><div class="row" style="margin-top:10px"><button id="m10" class="btn">-10</button><button id="m5" class="btn">-5</button><button id="m1" class="btn">-1</button><button id="p1" class="btn">+1</button><button id="p5" class="btn">+5</button><button id="p10" class="btn">+10</button><div class="spacer"></div><a data-link class="btn btn-ghost" href="/stock/product/edit?sku=${encodeURIComponent(sku)}">עריכת מוצר</a><button id="submitMove" class="btn btn-primary">${mode === 'add' ? 'הוסף למלאי' : 'הוצא מהמלאי'}</button></div>`;
 
     const qtyEl = $('#qty');
     const bump = (d) => qtyEl.value = String(Math.max(1, (Number(qtyEl.value) || 1) + d));
@@ -471,28 +491,50 @@ function bindAddOut({ mode }) {
       const source = mode === 'add' ? 'כניסה' : 'יציאה';
       if (!qty) return;
       if (source === 'יציאה' && stock - qty < 0 && !confirm(`זה יכניס למינוס (${stock - qty}). להמשיך?`)) return;
-      $('#msg').textContent = 'שולח...';
+      feedbackMsg.textContent = 'שולח...';
       try {
+        const notesVal = $('#notes').value.trim();
         await apiPost({
           action: 'movement_add',
           token: store.session.token,
           sku,
           barcode,
           qty,
-          notes: $('#notes').value.trim(),
+          notes: notesVal,
           source,
           reporterId: store.session.userId,
           reporterName: store.session.userName,
         });
-        const entry = { ts: Date.now(), sku, name, barcode, qty, source, notes: $('#notes').value.trim() };
+
+        // FIX: update local movements cache immediately so date-range totals reflect new entry
+        const now = new Date();
+        store.movements.push({
+          'מק"ט': sku,
+          'שם מוצר': name,
+          'ברקוד': barcode,
+          'כמות': qty,
+          'מקור': source,
+          'הערות': notesVal,
+          'תאריך דיווח': now.toISOString().slice(0, 10),
+          'שעת דיווח': now.toTimeString().slice(0, 8),
+        });
+        localStorage.setItem(LS_KEYS.movements, JSON.stringify(store.movements));
+
+        const entry = { ts: Date.now(), sku, name, barcode, qty, source, notes: notesVal };
         (mode === 'add' ? store.drafts.add : store.drafts.out).unshift(entry);
         saveDrafts();
         input.value = '';
+        // FIX: update summary button count after adding
+        $('#summaryBtn').textContent = `סיכום (${mode === 'add' ? store.drafts.add.length : store.drafts.out.length})`;
         input.focus();
         productPane.style.display = 'none';
         productPane.innerHTML = '';
-        $('#msg').textContent = 'בוצע ✓';
-      } catch (err) { $('#msg').textContent = 'שגיאה: ' + err.message; }
+        // FIX: feedbackMsg is still in DOM here (outside productPane)
+        feedbackMsg.textContent = 'בוצע ✓';
+        setTimeout(() => { if (feedbackMsg) feedbackMsg.textContent = ''; }, 3000);
+      } catch (err) {
+        feedbackMsg.textContent = 'שגיאה: ' + err.message;
+      }
     };
   }
 
@@ -669,7 +711,7 @@ function parseMovementTs(m) {
   const t = m['שעת דיווח'];
   const combinedRaw = `${d || ''} ${t || ''}`.trim();
   const direct = new Date(combinedRaw).getTime();
-  if (!isNaN(direct)) return direct;
+  if (!isNaN(direct) && direct > 0) return direct;
 
   const dateRaw = String(d || '').trim();
   const timeRaw = String(t || '').trim() || '00:00:00';
@@ -678,7 +720,7 @@ function parseMovementTs(m) {
   if (isoMatch) {
     const [, y, mo, da] = isoMatch;
     const ts = new Date(`${y}-${pad2(mo)}-${pad2(da)}T${normalizeTime(timeRaw)}`).getTime();
-    if (!isNaN(ts)) return ts;
+    if (!isNaN(ts) && ts > 0) return ts;
   }
 
   const localMatch = dateRaw.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})$/);
@@ -686,7 +728,15 @@ function parseMovementTs(m) {
     let [, da, mo, y] = localMatch;
     if (y.length === 2) y = `20${y}`;
     const ts = new Date(`${y}-${pad2(mo)}-${pad2(da)}T${normalizeTime(timeRaw)}`).getTime();
-    if (!isNaN(ts)) return ts;
+    if (!isNaN(ts) && ts > 0) return ts;
+  }
+
+  // FIX: try parsing as a serial number (Google Sheets date serial)
+  const serial = Number(dateRaw);
+  if (!isNaN(serial) && serial > 1000) {
+    // Google Sheets serial: days since Dec 30, 1899
+    const ts = (serial - 25569) * 86400000;
+    if (!isNaN(ts) && ts > 0) return ts;
   }
 
   return 0;
