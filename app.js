@@ -10,8 +10,15 @@ function getRoute() {
 }
 
 function navigate(page, params = {}) {
-  const qs = new URLSearchParams(params).toString();
-  location.hash = qs ? `${page}?${qs}` : page;
+  const qs      = new URLSearchParams(params).toString();
+  const newHash = qs ? `${page}?${qs}` : page;
+  // אם ה-hash לא משתנה, hashchange לא ייורה — קוראים ל-render ישירות
+  if (location.hash.replace(/^#/, '') === newHash) {
+    render();
+  } else {
+    location.hash = newHash;
+    // hashchange יפעיל את render אוטומטית
+  }
 }
 
 /* ─── app state ───────────────────────────────────────────────────────────── */
@@ -390,19 +397,15 @@ function bindLogin() {
     const userId = $('#loginUserId').value.trim();
     const code   = $('#loginCode').value.trim();
     $('#loginErr').textContent = 'מתחבר...';
-    console.log('trying login:', userId, code);
     try {
       const data = await apiPost({ action: 'auth_login', userId, code });
       store.session = { userId: data.userId, userName: data.userName, role: data.role, token: data.token };
       saveSession();
       await ensureMovementsLoaded();
       navigate('');
-    }
-    console.log('response:', data);
-    catch (err) {
+    } catch (err) {
       $('#loginErr').textContent = 'שגיאה: ' + err.message;
     }
-  console.log('error:', err);
   };
   $('#loginBtn').onclick = doLogin;
   $('#loginCode').addEventListener('keydown', e => e.key === 'Enter' && doLogin());
