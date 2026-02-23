@@ -452,18 +452,35 @@ function bindDashboard() {
   }));
 
   $('#dateRangeSearchBtn').onclick = async () => {
+    const dateFrom = $('#dateFrom').value;
+    const dateTo   = $('#dateTo').value;
+    if (!dateFrom || !dateTo) { alert('בחר תאריך התחלה וסיום'); return; }
     const btn = $('#dateRangeSearchBtn');
     btn.textContent = 'מחשב...';
-    btn.disabled = true;
-    dateRangeActive = true;
-    apply();
-    btn.textContent = 'חפש בטווח';
-    btn.disabled = false;
+    btn.disabled    = true;
+    try {
+      const data = await apiGet({ action: 'outgoing_sum', token: store.session.token, dateFrom, dateTo });
+      // שמור את התוצאה ב-store לשימוש ב-filterAndSortProducts
+      store._outBySku     = data.outBySku || {};
+      store._outDateRange = { dateFrom, dateTo };
+      dateRangeActive = true;
+      apply();
+    } catch(err) {
+      alert('שגיאה: ' + err.message);
+    } finally {
+      btn.textContent = 'חפש בטווח';
+      btn.disabled    = false;
+    }
   };
 
   ['dateFrom','dateTo'].forEach(id => {
     $('#'+id).addEventListener('change', () => {
-      if (!$('#dateFrom').value && !$('#dateTo').value) { dateRangeActive = false; apply(); }
+      if (!$('#dateFrom').value && !$('#dateTo').value) {
+        dateRangeActive       = false;
+        store._outBySku       = null;
+        store._outDateRange   = null;
+        apply();
+      }
     });
   });
 
@@ -490,7 +507,14 @@ function filterAndSortProducts({ q, brand, vendor, pesach, sort, dateFrom, dateT
   if (vendor) rows = rows.filter(p => String(p['ספק']  || '').trim() === vendor);
   if (pesach) rows = rows.filter(p => String(p['פסח']  || '').trim() === pesach);
 
-  const outBySku = computeOutBySku(dateFrom, dateTo);
+  // אם יש תוצאה שחזרה מהשרת עבור אותו טווח — השתמש בה, אחרת חשב מקומית
+  let outBySku;
+  if (dateRangeActive && store._outBySku && store._outDateRange &&
+      store._outDateRange.dateFrom === dateFrom && store._outDateRange.dateTo === dateTo) {
+    outBySku = { get: (sku) => store._outBySku[sku] || 0 };
+  } else {
+    outBySku = computeOutBySku(dateFrom, dateTo);
+  }
   const stockNum = p => Number(String(p['סה"כ במלאי'] || '0').replace(',','.')) || 0;
   rows.forEach(p => { p.__outQty = outBySku.get(String(p['מק"ט']||'').trim()) || 0; });
 
@@ -723,7 +747,8 @@ function bindAddOut(mode) {
         const val  = Math.max(1, Number(inp.value) || 1);
         const item = list[idx];
         if (!item.rowNum) {
-          btn.textContent = '⚠ אין מספר שורה';
+          alert('אין מספר שורה שמור לפריט זה — לא ניתן לעדכן. רענן את הדף ונסה שוב.');
+          btn.textContent = 'עדכן';
           return;
         }
         btn.textContent = 'שומר...';
@@ -737,14 +762,15 @@ function bindAddOut(mode) {
           });
           item.qty = val;
           saveDrafts();
-          btn.style.display = 'none';
-          btn.textContent   = 'עדכן';
-          btn.disabled      = false;
+          btn.style.display    = 'none';
+          btn.textContent      = 'עדכן';
+          btn.disabled         = false;
           inp.style.background = '#dcfce7';
           setTimeout(() => { inp.style.background = ''; }, 2000);
         } catch (err) {
-          btn.textContent  = 'שגיאה';
-          btn.disabled     = false;
+          btn.textContent = 'שגיאה ✗';
+          btn.disabled    = false;
+          alert('שגיאת עדכון: ' + err.message);
         }
       };
     });
