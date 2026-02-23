@@ -451,7 +451,15 @@ function bindDashboard() {
     dateTo:   dateRangeActive ? $('#dateTo').value   : '',
   }));
 
-  $('#dateRangeSearchBtn').onclick = () => { dateRangeActive = true; apply(); };
+  $('#dateRangeSearchBtn').onclick = async () => {
+    const btn = $('#dateRangeSearchBtn');
+    btn.textContent = 'מחשב...';
+    btn.disabled = true;
+    dateRangeActive = true;
+    apply();
+    btn.textContent = 'חפש בטווח';
+    btn.disabled = false;
+  };
 
   ['dateFrom','dateTo'].forEach(id => {
     $('#'+id).addEventListener('change', () => {
@@ -638,6 +646,15 @@ function bindAddOut(mode) {
         });
         localStorage.setItem(LS.movements, JSON.stringify(store.movements));
 
+        // עדכן מלאי בצד לקוח (רק בזיכרון, לא בקובץ)
+        const catalogProduct = store.catalog.productsBySku.get(sku);
+        if (catalogProduct) {
+          const currentStock = Number(String(catalogProduct['סה"כ במלאי']||'0').replace(',','.')) || 0;
+          const newStock = source === 'כניסה' ? currentStock + qty : currentStock - qty;
+          catalogProduct['סה"כ במלאי'] = String(newStock);
+          persistCatalog();
+        }
+
         const entry = { ts: Date.now(), sku, name, barcode, qty, source, notes: notesVal };
         (mode === 'add' ? store.drafts.add : store.drafts.out).unshift(entry);
         saveDrafts();
@@ -661,33 +678,64 @@ function bindAddOut(mode) {
     };
   }
 
-  function toggleSummary() {
+  function renderSummary() {
     const pane = $('#summaryPane');
     const list = mode === 'add' ? store.drafts.add : store.drafts.out;
-    const show = pane.style.display === 'none';
-    pane.style.display = show ? '' : 'none';
-    if (!show) return;
-    productPane.style.display = 'none';
-    productPane.innerHTML     = '';
     pane.innerHTML = `
       <div class="h1">סיכום (${list.length})</div>
       <div style="overflow:auto">
         <table class="table">
-          <thead><tr><th>זמן</th><th>מק"ט</th><th>שם</th><th>ברקוד</th><th>כמות</th><th>מקור</th></tr></thead>
-          <tbody>${list.map(x => `<tr>
+          <thead><tr><th>זמן</th><th>מק"ט</th><th>שם</th><th>ברקוד</th><th>כמות</th><th>מקור</th><th></th></tr></thead>
+          <tbody>${list.map((x, i) => `<tr>
             <td>${new Date(x.ts).toLocaleString('he-IL')}</td>
-            <td>${escHtml(x.sku)}</td><td>${escHtml(x.name)}</td>
-            <td>${escHtml(x.barcode)}</td><td>${x.qty}</td><td>${escHtml(x.source)}</td>
+            <td>${escHtml(x.sku)}</td>
+            <td>${escHtml(x.name)}</td>
+            <td>${escHtml(x.barcode)}</td>
+            <td><input class="input draft-qty" data-idx="${i}" type="number" value="${x.qty}" min="1" style="width:70px;padding:4px 8px"/></td>
+            <td>${escHtml(x.source)}</td>
+            <td><button class="btn btn-danger draft-del" data-idx="${i}" style="padding:6px 10px">🗑</button></td>
           </tr>`).join('')}</tbody>
         </table>
       </div>
-      <button id="finishBtn" class="btn btn-primary" style="margin-top:10px">סיימתי — נקה טיוטה</button>`;
+      <div class="row" style="margin-top:10px">
+        <button id="finishBtn" class="btn btn-primary">סיימתי — נקה טיוטה</button>
+      </div>`;
+
+    pane.querySelectorAll('.draft-qty').forEach(inp => {
+      inp.addEventListener('change', () => {
+        const idx = Number(inp.dataset.idx);
+        const val = Math.max(1, Number(inp.value) || 1);
+        inp.value  = val;
+        list[idx].qty = val;
+        saveDrafts();
+      });
+    });
+
+    pane.querySelectorAll('.draft-del').forEach(btn => {
+      btn.onclick = () => {
+        list.splice(Number(btn.dataset.idx), 1);
+        saveDrafts();
+        $('#summaryBtn').textContent = `סיכום (${list.length})`;
+        renderSummary();
+      };
+    });
+
     $('#finishBtn').onclick = () => {
       if (!confirm('לנקות את הסיכום?')) return;
       if (mode === 'add') store.drafts.add = []; else store.drafts.out = [];
       saveDrafts();
       navigate('');
     };
+  }
+
+  function toggleSummary() {
+    const pane = $('#summaryPane');
+    const show = pane.style.display === 'none';
+    pane.style.display = show ? '' : 'none';
+    if (!show) return;
+    productPane.style.display = 'none';
+    productPane.innerHTML     = '';
+    renderSummary();
   }
 
   input.focus();
