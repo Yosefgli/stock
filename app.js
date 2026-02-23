@@ -23,10 +23,13 @@ function navigate(page, params = {}) {
 
 /* ─── app state ───────────────────────────────────────────────────────────── */
 const store = {
-  session:   null,
-  catalog:   null,
-  movements: [],
-  drafts:    { add: [], out: [] },
+  session:        null,
+  catalog:        null,
+  movements:      [],
+  drafts:         { add: [], out: [] },
+  dateRangeActive: false,
+  outBySku:       null,
+  outDateRange:   null,
 };
 
 const LS = {
@@ -419,7 +422,6 @@ function bindLogin() {
    ═══════════════════════════════════════════════════════════════════════════ */
 function bindDashboard() {
   $('#logoutBtn').style.display = '';
-  let dateRangeActive = false;
   // בדיקת קטלוג
   if (!store.catalog || !store.catalog.products || store.catalog.products.length === 0) {
     console.error('קטלוג ריק בעת טעינת דשבורד!', store.catalog);
@@ -466,9 +468,9 @@ function bindDashboard() {
     try {
       const data = await apiGet({ action: 'outgoing_sum', token: store.session.token, dateFrom, dateTo });
       // שמור את התוצאה ב-store לשימוש ב-filterAndSortProducts
-      store._outBySku     = data.outBySku || {};
-      store._outDateRange = { dateFrom, dateTo };
-      dateRangeActive = true;
+      store.outBySku     = data.outBySku || {};
+      store.outDateRange = { dateFrom, dateTo };
+      store.dateRangeActive = true;
       apply();
     } catch(err) {
       alert('שגיאה: ' + err.message);
@@ -481,9 +483,9 @@ function bindDashboard() {
   ['dateFrom','dateTo'].forEach(id => {
     $('#'+id).addEventListener('change', () => {
       if (!$('#dateFrom').value && !$('#dateTo').value) {
-        dateRangeActive       = false;
-        store._outBySku       = null;
-        store._outDateRange   = null;
+        store.dateRangeActive       = false;
+        store.outBySku       = null;
+        store.outDateRange   = null;
         apply();
       }
     });
@@ -514,7 +516,7 @@ function filterAndSortProducts({ q, brand, vendor, pesach, sort }) {
 
   // __outQty מוגדר רק כשלחצו "חפש בטווח" — בשאר המקרים 0
   const stockNum  = p => Number(String(p['סה"כ במלאי'] || '0').replace(',','.')) || 0;
-  const serverOut = (dateRangeActive && store._outBySku) ? store._outBySku : {};
+  const serverOut = (store.dateRangeActive && store.outBySku) ? store.outBySku : {};
   rows.forEach(p => { p.__outQty = serverOut[String(p['מק"ט']||'').trim()] || 0; });
   // serverOut is a plain object - access with [] not .get()
 
