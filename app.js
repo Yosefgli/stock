@@ -282,6 +282,7 @@ function dashboardView() {
       <div class="col"><label>פסח</label><select id="pesach" class="input"><option value="">הכול</option><option value="קטניות">קטניות</option><option value="ללא קטניות">ללא קטניות</option><option value="חמץ">חמץ</option></select></div>
       <div class="col"><label>תאריך יציאות מ-</label><input id="dateFrom" type="date" class="input"/></div>
       <div class="col"><label>עד</label><input id="dateTo" type="date" class="input"/></div>
+      <div style="display:flex;align-items:flex-end"><button id="dateRangeSearchBtn" class="btn">חפש בטווח</button></div>
       <div class="col"><label>מיון</label><select id="sort" class="input"><option value="name_asc">שם (א-ת)</option><option value="name_desc">שם (ת-א)</option><option value="stock_desc">מלאי ↓</option><option value="stock_asc">מלאי ↑</option><option value="vendor_asc">ספק</option><option value="brand_asc">מותג</option><option value="out_desc">יצא בטווח ↓</option></select></div>
     </div>
     <div style="overflow:auto;margin-top:10px"><table class="table" id="productsTable"><thead><tr><th>תמונה</th><th>מק"ט</th><th>שם</th><th>סה"כ</th><th>יצא בטווח</th><th>מותג</th><th>ספק</th><th>פסח</th><th>פעולות</th></tr></thead><tbody></tbody></table></div>
@@ -319,6 +320,8 @@ function bindLogin() {
 
 function bindDashboard() {
   $('#logoutBtn').style.display = '';
+  let dateRangeActive = false;
+
   $('#refreshCatalogBtn').onclick = async () => {
     $('#refreshCatalogBtn').textContent = 'מרענן...';
     try {
@@ -339,11 +342,20 @@ function bindDashboard() {
   const apply = () => {
     const rows = filterAndSortProducts({
       q: $('#q').value.trim(), brand: $('#brand').value, vendor: $('#vendor').value,
-      pesach: $('#pesach').value, sort: $('#sort').value, dateFrom: $('#dateFrom').value, dateTo: $('#dateTo').value,
+      pesach: $('#pesach').value,
+      sort: $('#sort').value,
+      dateFrom: dateRangeActive ? $('#dateFrom').value : '',
+      dateTo: dateRangeActive ? $('#dateTo').value : '',
     });
     renderProductsTable(rows);
   };
-  ['q', 'brand', 'vendor', 'pesach', 'sort', 'dateFrom', 'dateTo'].forEach((id) => {
+
+  $('#dateRangeSearchBtn').onclick = () => {
+    dateRangeActive = true;
+    apply();
+  };
+
+  ['q', 'brand', 'vendor', 'pesach', 'sort'].forEach((id) => {
     const el = $('#' + id);
     el.addEventListener('input', apply);
     el.addEventListener('change', apply);
@@ -354,9 +366,7 @@ function bindDashboard() {
 function filterAndSortProducts({ q, brand, vendor, pesach, sort, dateFrom, dateTo }) {
   let rows = store.catalog.products.filter((p) => {
     const sku = String(p['מק"ט'] || p['מק"ט מוצר'] || '').trim();
-    const name = String(p['שם מוצר'] || '').trim();
-    const stock = String(p['סה"כ במלאי'] || '').trim();
-    return Boolean(sku || name || stock);
+    return Boolean(sku);
   });
   if (q) {
     const t = q.toLowerCase();
