@@ -360,7 +360,6 @@ function bindDashboard() {
     el.addEventListener('input', apply);
     el.addEventListener('change', apply);
   });
-
   apply();
 }
 

@@ -191,7 +191,11 @@ function movementAdd_(body) {
     setByHeader_(row, headerMap, 'תאריך דיווח', dateOnly);
     setByHeader_(row, headerMap, 'שעת דיווח', timeOnly);
 
+<<<<<<< codex/fix-ui-bugs-and-improve-filtering-vpdrne
     const targetRow = findFirstEmptyByHeader_(shMov, headerMap, 'תאריך דיווח');
+=======
+    const targetRow = findFirstEmptyRowByHeaders_(shMov, headerMap, ['מק"ט', 'ברקוד', 'כמות', 'מקור']);
+>>>>>>> main
     shMov.getRange(targetRow, 1, 1, row.length).setValues([row]);
 
     return { ok: true, row: targetRow, sku, barcode, qty, source };
@@ -418,6 +422,7 @@ function findFirstEmptyRowByHeaders_(sheet, headerMap, keyHeaders) {
   return lastRow + 1;
 }
 
+<<<<<<< codex/fix-ui-bugs-and-improve-filtering-vpdrne
 function findFirstEmptyByHeader_(sheet, headerMap, headerName) {
   const col = headerMap[headerName];
   if (!col) return Math.max(2, sheet.getLastRow() + 1);
@@ -433,6 +438,8 @@ function findFirstEmptyByHeader_(sheet, headerMap, headerName) {
   return lastRow + 1;
 }
 
+=======
+>>>>>>> main
 function findUserById_(userId) {
   const sh = ss_().getSheetByName(SHEET_USERS);
   if (!sh) throw new Error('Missing sheet: ' + SHEET_USERS);
