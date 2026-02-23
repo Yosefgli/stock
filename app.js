@@ -352,7 +352,12 @@ function bindDashboard() {
 }
 
 function filterAndSortProducts({ q, brand, vendor, pesach, sort, dateFrom, dateTo }) {
-  let rows = store.catalog.products.slice();
+  let rows = store.catalog.products.filter((p) => {
+    const sku = String(p['מק"ט'] || p['מק"ט מוצר'] || '').trim();
+    const name = String(p['שם מוצר'] || '').trim();
+    const stock = String(p['סה"כ במלאי'] || '').trim();
+    return Boolean(sku || name || stock);
+  });
   if (q) {
     const t = q.toLowerCase();
     rows = rows.filter(p => String(p['שם מוצר'] || '').toLowerCase().includes(t) || String(p['מק"ט'] || '').toLowerCase().includes(t));
@@ -443,7 +448,7 @@ function bindAddOut({ mode }) {
     const name = String(p['שם מוצר'] || '').trim();
     const stock = Number(String(p['סה"כ במלאי'] || '0').replace(',', '.')) || 0;
     productPane.style.display = '';
-    productPane.innerHTML = `<div class="h1">${escapeHtml(name)}</div><div class="small">מק"ט: <span class="kbd">${escapeHtml(sku)}</span> · מלאי: ${stock}</div><div class="row" style="margin-top:10px"><div class="col"><label>כמות</label><input id="qty" class="input" type="number" value="1" min="1"/></div><div class="col"><label>הערות</label><input id="notes" class="input"/></div></div><div class="row" style="margin-top:10px"><button id="m10" class="btn">-10</button><button id="m5" class="btn">-5</button><button id="m1" class="btn">-1</button><button id="p1" class="btn">+1</button><button id="p5" class="btn">+5</button><button id="p10" class="btn">+10</button><div class="spacer"></div><button id="submitMove" class="btn btn-primary">${mode === 'add' ? 'הוסף למלאי' : 'הוצא מהמלאי'}</button></div><div id="msg" class="small" style="margin-top:8px"></div>`;
+    productPane.innerHTML = `<div class="h1">${escapeHtml(name)}</div><div class="small">מק"ט: <span class="kbd">${escapeHtml(sku)}</span> · מלאי: ${stock}</div><div class="row" style="margin-top:10px"><div class="col"><label>כמות</label><input id="qty" class="input" type="number" value="1" min="1"/></div><div class="col"><label>הערות</label><input id="notes" class="input"/></div></div><div class="row" style="margin-top:10px"><button id="m10" class="btn">-10</button><button id="m5" class="btn">-5</button><button id="m1" class="btn">-1</button><button id="p1" class="btn">+1</button><button id="p5" class="btn">+5</button><button id="p10" class="btn">+10</button><div class="spacer"></div><a data-link class="btn btn-ghost" href="/stock/product/edit?sku=${encodeURIComponent(sku)}">עריכת מוצר</a><button id="submitMove" class="btn btn-primary">${mode === 'add' ? 'הוסף למלאי' : 'הוצא מהמלאי'}</button></div><div id="msg" class="small" style="margin-top:8px"></div>`;
 
     const qtyEl = $('#qty');
     const bump = (d) => qtyEl.value = String(Math.max(1, (Number(qtyEl.value) || 1) + d));
@@ -458,12 +463,24 @@ function bindAddOut({ mode }) {
       if (source === 'יציאה' && stock - qty < 0 && !confirm(`זה יכניס למינוס (${stock - qty}). להמשיך?`)) return;
       $('#msg').textContent = 'שולח...';
       try {
-        await apiPost({ action: 'movement_add', token: store.session.token, sku, barcode, qty, notes: $('#notes').value.trim(), source });
+        await apiPost({
+          action: 'movement_add',
+          token: store.session.token,
+          sku,
+          barcode,
+          qty,
+          notes: $('#notes').value.trim(),
+          source,
+          reporterId: store.session.userId,
+          reporterName: store.session.userName,
+        });
         const entry = { ts: Date.now(), sku, name, barcode, qty, source, notes: $('#notes').value.trim() };
         (mode === 'add' ? store.drafts.add : store.drafts.out).unshift(entry);
         saveDrafts();
         input.value = '';
         input.focus();
+        productPane.style.display = 'none';
+        productPane.innerHTML = '';
         $('#msg').textContent = 'בוצע ✓';
       } catch (err) { $('#msg').textContent = 'שגיאה: ' + err.message; }
     };
@@ -473,6 +490,10 @@ function bindAddOut({ mode }) {
     const pane = $('#summaryPane');
     const list = mode === 'add' ? store.drafts.add : store.drafts.out;
     pane.style.display = pane.style.display === 'none' ? '' : 'none';
+    if (pane.style.display !== 'none') {
+      productPane.style.display = 'none';
+      productPane.innerHTML = '';
+    }
     if (pane.style.display === 'none') return;
     pane.innerHTML = `<div class="h1">סיכום (${list.length})</div><div style="overflow:auto"><table class="table"><thead><tr><th>זמן</th><th>מק"ט</th><th>שם</th><th>ברקוד</th><th>כמות</th><th>מקור</th></tr></thead><tbody>${list.map(x => `<tr><td>${new Date(x.ts).toLocaleString('he-IL')}</td><td>${escapeHtml(x.sku)}</td><td>${escapeHtml(x.name)}</td><td>${escapeHtml(x.barcode)}</td><td>${x.qty}</td><td>${escapeHtml(x.source)}</td></tr>`).join('')}</tbody></table></div><button id="finishBtn" class="btn btn-primary" style="margin-top:10px">סיימתי</button>`;
     $('#finishBtn').onclick = () => {
@@ -544,7 +565,14 @@ function bindProductEdit(sku) {
       const p = statusData.product || store.catalog.productsBySku.get(sku) || {};
       const isAdmin = store.session.role === 'Admin';
       const editable = isAdmin ? ['מק"ט', 'שם מוצר', 'ספק', 'מותג', 'פסח', 'קוד מזהה', 'מעמ', 'תמונה'] : ['שם מוצר', 'ספק', 'מותג', 'פסח'];
-      pane.innerHTML = `<div class="row">${editable.map((k) => `<div class="col"><label>${escapeHtml(k)}</label><input data-field="${escapeHtml(k)}" class="input" value="${escapeHtml(String(p[k] || ''))}"/></div>`).join('')}</div><div class="row" style="margin-top:10px"><button id="saveProductBtn" class="btn btn-primary">שמור שינויים</button><span id="saveProductMsg" class="small"></span></div><hr/><div class="h1">ברקודים</div><div id="barcodeList">${(barcodeData.barcodes || []).map((b) => `<div class="row"><span class="kbd">${escapeHtml(typeof b === 'string' ? b : b.barcode || b['ברקוד'] || '')}</span>${isAdmin ? `<button class="btn btn-danger" data-del-barcode="${escapeHtml(typeof b === 'string' ? b : b.barcode || b['ברקוד'] || '')}">מחק</button>` : ''}</div>`).join('')}</div><div class="row" style="margin-top:10px"><div class="col"><input id="newBarcode" class="input" placeholder="ברקוד חדש"/></div><button id="addBarcodeBtn" class="btn">הוסף ברקוד</button></div><div id="barcodeMsg" class="small"></div>`;
+      pane.innerHTML = `<div class="row">${editable.map((k) => {
+        if (k === 'פסח') {
+          const current = String(p[k] || '').trim();
+          const options = ['', 'קטניות', 'ללא קטניות', 'חמץ'];
+          return `<div class="col"><label>${escapeHtml(k)}</label><select data-field="${escapeHtml(k)}" class="input">${options.map((opt) => `<option value="${escapeHtml(opt)}" ${opt === current ? 'selected' : ''}>${escapeHtml(opt || 'בחר...')}</option>`).join('')}</select></div>`;
+        }
+        return `<div class="col"><label>${escapeHtml(k)}</label><input data-field="${escapeHtml(k)}" class="input" value="${escapeHtml(String(p[k] || ''))}"/></div>`;
+      }).join('')}</div><div class="row" style="margin-top:10px"><button id="saveProductBtn" class="btn btn-primary">שמור שינויים</button><span id="saveProductMsg" class="small"></span></div><hr/><div class="h1">ברקודים</div><div id="barcodeList">${(barcodeData.barcodes || []).map((b) => `<div class="row"><span class="kbd">${escapeHtml(typeof b === 'string' ? b : b.barcode || b['ברקוד'] || '')}</span>${isAdmin ? `<button class="btn btn-danger" data-del-barcode="${escapeHtml(typeof b === 'string' ? b : b.barcode || b['ברקוד'] || '')}">מחק</button>` : ''}</div>`).join('')}</div><div class="row" style="margin-top:10px"><div class="col"><input id="newBarcode" class="input" placeholder="ברקוד חדש"/></div><button id="addBarcodeBtn" class="btn">הוסף ברקוד</button></div><div id="barcodeMsg" class="small"></div>`;
 
       $('#saveProductBtn').onclick = async () => {
         const fields = {};
@@ -629,8 +657,40 @@ function fmtTime(v) { const d = new Date(v); return isNaN(d.getTime()) ? String(
 function parseMovementTs(m) {
   const d = m['תאריך דיווח'];
   const t = m['שעת דיווח'];
-  const ts = new Date(`${d || ''} ${t || ''}`.trim()).getTime();
-  if (!isNaN(ts)) return ts;
-  const fallback = new Date(d || '').getTime();
-  return isNaN(fallback) ? 0 : fallback;
+  const combinedRaw = `${d || ''} ${t || ''}`.trim();
+  const direct = new Date(combinedRaw).getTime();
+  if (!isNaN(direct)) return direct;
+
+  const dateRaw = String(d || '').trim();
+  const timeRaw = String(t || '').trim() || '00:00:00';
+
+  const isoMatch = dateRaw.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+  if (isoMatch) {
+    const [, y, mo, da] = isoMatch;
+    const ts = new Date(`${y}-${pad2(mo)}-${pad2(da)}T${normalizeTime(timeRaw)}`).getTime();
+    if (!isNaN(ts)) return ts;
+  }
+
+  const localMatch = dateRaw.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})$/);
+  if (localMatch) {
+    let [, da, mo, y] = localMatch;
+    if (y.length === 2) y = `20${y}`;
+    const ts = new Date(`${y}-${pad2(mo)}-${pad2(da)}T${normalizeTime(timeRaw)}`).getTime();
+    if (!isNaN(ts)) return ts;
+  }
+
+  return 0;
+}
+
+function normalizeTime(v) {
+  const parts = String(v || '').trim().split(':').filter(Boolean);
+  if (!parts.length) return '00:00:00';
+  const h = pad2(parts[0]);
+  const m = pad2(parts[1] || '00');
+  const s = pad2(parts[2] || '00');
+  return `${h}:${m}:${s}`;
+}
+
+function pad2(v) {
+  return String(v || '0').padStart(2, '0');
 }
