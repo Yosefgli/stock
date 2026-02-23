@@ -191,11 +191,10 @@ function movementAdd_(body) {
     setByHeader_(row, headerMap, 'תאריך דיווח', dateOnly);
     setByHeader_(row, headerMap, 'שעת דיווח', timeOnly);
 
-<<<<<<< codex/fix-ui-bugs-and-improve-filtering-vpdrne
-    const targetRow = findFirstEmptyByHeader_(shMov, headerMap, 'תאריך דיווח');
-=======
+    // FIX: resolved merge conflict — use multi-column empty-row detection (main branch version)
+    // This is more reliable than single-column check since a row is truly empty only when
+    // ALL key columns are empty, avoiding false positives from partially-filled rows.
     const targetRow = findFirstEmptyRowByHeaders_(shMov, headerMap, ['מק"ט', 'ברקוד', 'כמות', 'מקור']);
->>>>>>> main
     shMov.getRange(targetRow, 1, 1, row.length).setValues([row]);
 
     return { ok: true, row: targetRow, sku, barcode, qty, source };
@@ -422,24 +421,6 @@ function findFirstEmptyRowByHeaders_(sheet, headerMap, keyHeaders) {
   return lastRow + 1;
 }
 
-<<<<<<< codex/fix-ui-bugs-and-improve-filtering-vpdrne
-function findFirstEmptyByHeader_(sheet, headerMap, headerName) {
-  const col = headerMap[headerName];
-  if (!col) return Math.max(2, sheet.getLastRow() + 1);
-
-  const lastRow = Math.max(2, sheet.getLastRow());
-  const rowCount = Math.max(0, lastRow - 1);
-  if (!rowCount) return 2;
-
-  const values = sheet.getRange(2, col, rowCount, 1).getValues();
-  for (let i = 0; i < values.length; i++) {
-    if (String(values[i][0] || '').trim() === '') return i + 2;
-  }
-  return lastRow + 1;
-}
-
-=======
->>>>>>> main
 function findUserById_(userId) {
   const sh = ss_().getSheetByName(SHEET_USERS);
   if (!sh) throw new Error('Missing sheet: ' + SHEET_USERS);
